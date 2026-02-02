@@ -1,0 +1,45 @@
+services:
+  miniflux:
+    image: miniflux/miniflux:latest
+    ports:
+      - "8070:8080"
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      - DATABASE_URL=postgres://miniflux:${POSTGRES_PASSWORD:-miniflux2026}@db/miniflux?sslmode=disable
+      - RUN_MIGRATIONS=1
+      - CREATE_ADMIN=1
+      - ADMIN_USERNAME=${MINIFLUX_ADMIN_USER:-admin}
+      - ADMIN_PASSWORD=${MINIFLUX_ADMIN_PASSWORD:-crew2026!}
+      - BASE_URL=${MINIFLUX_BASE_URL:-https://starfleet-rss.etrox.de}
+      - POLLING_FREQUENCY=15
+      - BATCH_SIZE=50
+      - POLLING_PARSING_ERROR_LIMIT=5
+      - METRICS_COLLECTOR=1
+      - CLEANUP_ARCHIVE_READ_DAYS=60
+      - CLEANUP_ARCHIVE_UNREAD_DAYS=180
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "miniflux", "-healthcheck", "auto"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  db:
+    image: postgres:15-alpine
+    environment:
+      - POSTGRES_USER=miniflux
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-miniflux2026}
+      - POSTGRES_DB=miniflux
+    volumes:
+      - miniflux-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "miniflux"]
+      interval: 10s
+      timeout: 5s
+      start_period: 30s
+    restart: unless-stopped
+
+volumes:
+  miniflux-db:
