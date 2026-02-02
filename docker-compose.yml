@@ -19,6 +19,8 @@ services:
       - METRICS_COLLECTOR=1
       - CLEANUP_ARCHIVE_READ_DAYS=60
       - CLEANUP_ARCHIVE_UNREAD_DAYS=180
+    networks:
+      - internal
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "miniflux", "-healthcheck", "auto"]
@@ -35,6 +37,8 @@ services:
       - POSTGRES_DB=miniflux
     volumes:
       - miniflux-db:/var/lib/postgresql/data
+    networks:
+      - internal
     healthcheck:
       test: ["CMD", "pg_isready", "-U", "miniflux"]
       interval: 10s
@@ -44,3 +48,6 @@ services:
 
 volumes:
   miniflux-db:
+
+networks:
+  internal:
