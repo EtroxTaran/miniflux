@@ -15,6 +15,14 @@ Docker network, loopback/tailnet access, no public Traefik router.
 ## Project-specific rules
 
 - Governance: `solo` / `simple`, `runtime-security-cleanup`.
+- Architektur-Default: privat und von Nico als einem Maintainer betrieben —
+  **Keep It Simple**. DDD bleibt die Modellierungssprache, wird aber proportional
+  zur echten Domänenkomplexität eingesetzt. Keine spekulativen
+  Backup-/Disaster-Recovery-, High-Availability-, Hot-/Zero-Downtime-,
+  Enterprise-Security-/Compliance- oder Microservice-Lösungen. Wenn ein
+  konkretes Risiko so etwas erforderlich erscheinen lässt, vor der Umsetzung
+  Nico fragen. Baseline-Security und bestehende explizite
+  Runtime-Entscheidungen bleiben gültig.
 - Never commit credentials or usable defaults. Production credentials live in
   the Dokploy/host secret store and are rotated if they ever appear in Git.
 - No Graphify build, Project-Wall publication or Portal visibility for this
