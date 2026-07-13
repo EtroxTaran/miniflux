@@ -6,7 +6,7 @@ topics:
     summaries: [.project-governance.yaml]
   review_automation:
     canonical: .ai-review/config.yaml
-    summaries: [.github/workflows/README.md]
+    summaries: []
   project_documentation:
     canonical: README.md
     summaries: []

@@ -11,7 +11,7 @@ case "${stage}" in
     command -v cursor-agent >/dev/null 2>&1
     ;;
   security)
-    command -v gemini >/dev/null 2>&1
+    command -v cursor-agent >/dev/null 2>&1
     command -v semgrep >/dev/null 2>&1
     ;;
   design)

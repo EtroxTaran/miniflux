@@ -33,7 +33,7 @@ Closes #<N>
 - [ ] Unit tests added (TDD: red → green → refactor)
 - [ ] E2E test with Playwright `page.route()` mocks (for UI changes)
 - [ ] Manual smoke test in browser / CLI
-- [ ] `pnpm typecheck && pnpm test` local green
+- [ ] `docker compose config --no-interpolate && bash tests/security-config.test.sh` local green
 - [ ] `ai-review issue-report` green or documented why not applicable
 
 ## Screenshots

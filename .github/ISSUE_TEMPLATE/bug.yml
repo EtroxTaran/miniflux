@@ -81,7 +81,7 @@ body:
         - [ ] Root-Cause im PR-Body dokumentiert
         - [ ] Dependencies/Sub-Issues in GitHub gepflegt oder explizit "None"
         - [ ] PR mit `Closes #<this>` verlinkt
-        - [ ] AI-Review-Pipeline 5/5 Stages grün oder dokumentierter HITL-Entscheid
+        - [ ] AI-Review-Pipeline: all required stages green oder dokumentierter HITL-Entscheid
         - [ ] Reporting-Check grün (`ai-review issue-report`)
     validations:
       required: true

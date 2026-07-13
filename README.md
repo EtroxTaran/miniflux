@@ -62,3 +62,10 @@ rotate either credential. Use this order during an approved maintenance window:
 
 The values that previously appeared in this repository must be treated as
 compromised even if they were intended as examples.
+
+## Entwicklungsautomation
+
+Die Review-Policy liegt unter `.ai-review/`.
+`ai-review-watch@miniflux.service` ist das einzige aktive Review-Backend und
+ersetzt kopierte GitHub-Actions-Review-Workflows. Der Compose- und
+Credential-Test bleibt der kleine, projektspezifische Completion-Gate.
