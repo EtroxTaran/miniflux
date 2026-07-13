@@ -1,0 +1,14 @@
+name: AI Review ownership marker
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  local-watcher-owns-review:
+    if: ${{ false }}
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Automatic review is owned by ai-review-watch@miniflux.service on bb8."

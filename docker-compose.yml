@@ -1,6 +1,6 @@
 services:
   miniflux:
-    image: miniflux/miniflux:2.3.1
+    image: miniflux/miniflux:2.3.2
     ports:
       - "127.0.0.1:${MINIFLUX_TAILSCALE_UI_PORT:-8070}:8080"
     depends_on:

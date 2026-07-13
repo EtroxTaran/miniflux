@@ -61,5 +61,8 @@ compromised even if they were intended as examples.
 
 Die Review-Policy liegt unter `.ai-review/`.
 `ai-review-watch@miniflux.service` ist das einzige aktive Review-Backend und
-ersetzt kopierte GitHub-Actions-Review-Workflows. Der Compose- und
-Credential-Test bleibt der kleine, projektspezifische Completion-Gate.
+ersetzt kopierte GitHub-Actions-Review-Workflows. Die manuell sichtbare Datei
+`.github/workflows/ai-code-review.yml` ist nur ein dauerhaft übersprungener
+Ownership-Marker für die CLI-Setup-Erkennung und startet keinen Runner. Der
+Compose- und Credential-Test bleibt der kleine, projektspezifische
+Completion-Gate.

@@ -50,4 +50,4 @@ Closes #<N>
 
 ---
 
-LOCAL-CI watcher `ai-review-watch@miniflux.service` reviews open PRs and posts the required `ai-review/consensus`; copied GitHub Actions review workflows are intentionally absent.
+LOCAL-CI watcher `ai-review-watch@miniflux.service` reviews open PRs and posts the required `ai-review/consensus`. `.github/workflows/ai-code-review.yml` is a non-running ownership marker for setup discovery; it does not duplicate the watcher.

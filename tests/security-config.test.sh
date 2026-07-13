@@ -7,6 +7,8 @@ readme="${root}/README.md"
 example="${root}/.env.example"
 governance="${root}/.project-governance.yaml"
 review_config="${root}/.ai-review/config.yaml"
+review_marker="${root}/.github/workflows/ai-code-review.yml"
+gitignore="${root}/.gitignore"
 
 legacy_db_default='miniflux''2026'
 legacy_admin_default='crew''2026!'
@@ -22,7 +24,8 @@ done
 grep -Fq '127.0.0.1:${MINIFLUX_TAILSCALE_UI_PORT:-8070}:8080' "${compose}"
 grep -q 'POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required' "${compose}"
 grep -q 'MINIFLUX_BASE_URL:?MINIFLUX_BASE_URL is required' "${compose}"
-grep -q 'miniflux/miniflux:2.3.1' "${compose}"
+grep -q 'miniflux/miniflux:2.3.2' "${compose}"
+grep -Fxq '*.log' "${gitignore}"
 
 if grep -Eq 'CREATE_ADMIN|ADMIN_USERNAME|ADMIN_PASSWORD' "${compose}"; then
   printf 'initial-only admin bootstrap variables remain in maintenance compose\n' >&2
@@ -46,6 +49,14 @@ grep -q 'lifecycle: maintenance' "${governance}"
 grep -q 'watcher_enabled: true' "${governance}"
 grep -q 'graph_enabled: false' "${governance}"
 grep -q 'enabled: true' "${review_config}"
+
+test -f "${review_marker}"
+grep -q 'workflow_dispatch:' "${review_marker}"
+grep -q 'if:.*false' "${review_marker}"
+if grep -Eq '^[[:space:]]+(pull_request|push):' "${review_marker}"; then
+  printf 'AI-review ownership marker must never trigger an automatic Actions run\n' >&2
+  exit 1
+fi
 
 ci="${root}/.github/workflows/ci.yml"
 grep -q 'workflow_dispatch:' "${ci}"
