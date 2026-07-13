@@ -1,0 +1,145 @@
+name: Vault-Sync
+
+# ai-review-template-version: 0.1.1
+# Optionaler Post-Merge-Vault-Sync für Repos OHNE wiki/-Verzeichnis (Phase 4).
+#
+# Wenn das Repo wiki/ hat, ist der zentrale Vault via Symlink (ADR-006) bereits
+# Spiegel des Repo-Inhalts — dieser Workflow ist dann redundant und skipped.
+# Wenn das Repo KEIN wiki/ hat (z.B. externe Dependency, Sub-Repo ohne
+# Project-Wall-Pattern), kann dieser Workflow nach jedem gemergten PR die
+# docs/adr/- und docs/architecture/-Änderungen an einen Vault-Ingest-Endpoint
+# POSTen, sodass der zentrale Vault davon Kenntnis bekommt.
+#
+# Konfiguration:
+#   - Repo-Setting Variable VAULT_INGEST_URL muss gesetzt sein
+#     (z.B. http://127.0.0.1:5678/webhook/vault-ingest auf r2d2-self-hosted)
+#   - Optional: VAULT_INGEST_TOKEN als Secret für Authorization-Header
+#
+# Was der Workflow blockiert (graceful skip, kein hard fail):
+#   - PR ist nicht gemerged
+#   - wiki/-Verzeichnis existiert (Symlink-Pattern aktiv → kein Sync nötig)
+#   - VAULT_INGEST_URL ist nicht gesetzt (Repo ist nicht für Sync konfiguriert)
+#   - Diff enthält keine docs/adr/ oder docs/architecture/ Änderungen (nichts
+#     zu syncen)
+#   - HTTP-POST schlägt fehl (Vault-MCP nicht erreichbar) → loggen, nicht
+#     fail-en (Sync ist best-effort, nicht blockierend)
+#
+# Dieses Template ist NICHT in `gh-ai-review` REQUIRED_WORKFLOWS — es wird
+# manuell in Repos eingebaut, die wiki/+Symlink nicht nutzen.
+
+on:
+  pull_request:
+    types: [closed]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  sync:
+    name: Sync docs changes to vault (best-effort)
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.merged == true
+    steps:
+      - name: Checkout merged commit
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+        with:
+          fetch-depth: 2
+
+      - name: Skip if wiki/ exists (symlink pattern is the SoT)
+        id: wiki_check
+        run: |
+          set -euo pipefail
+          if [ -d "wiki" ]; then
+            echo "::notice::repo has wiki/ — symlink pattern is active, vault-sync redundant. Skipping."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Skip if VAULT_INGEST_URL is not configured
+        id: url_check
+        if: steps.wiki_check.outputs.skip != 'true'
+        env:
+          INGEST_URL: ${{ vars.VAULT_INGEST_URL }}
+        run: |
+          set -euo pipefail
+          if [ -z "$INGEST_URL" ]; then
+            echo "::notice::VAULT_INGEST_URL repo-variable not set — skipping vault-sync."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Compute changed docs paths
+        id: changed
+        if: |
+          steps.wiki_check.outputs.skip != 'true'
+          && steps.url_check.outputs.skip != 'true'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.merge_commit_sha }}
+        run: |
+          set -euo pipefail
+          # Diff-range from base to merge-commit. Both are guaranteed by GitHub
+          # for closed+merged PRs.
+          changed=$(git diff --name-only "$BASE_SHA" "$HEAD_SHA" \
+            | grep -E '^(docs/adr/|docs/architecture/)' || true)
+          if [ -z "$changed" ]; then
+            echo "::notice::no docs/adr or docs/architecture changes in diff — skipping."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+          # Pass file list as a single newline-separated output
+          {
+            echo "files<<CHANGED_EOF"
+            printf '%s\n' "$changed"
+            echo "CHANGED_EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: POST changes to vault ingest (best-effort)
+        if: |
+          steps.wiki_check.outputs.skip != 'true'
+          && steps.url_check.outputs.skip != 'true'
+          && steps.changed.outputs.skip != 'true'
+        env:
+          INGEST_URL: ${{ vars.VAULT_INGEST_URL }}
+          INGEST_TOKEN: ${{ secrets.VAULT_INGEST_TOKEN }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          MERGE_SHA: ${{ github.event.pull_request.merge_commit_sha }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          CHANGED: ${{ steps.changed.outputs.files }}
+        run: |
+          set -euo pipefail
+          # Build JSON payload via python (jq is reliable but we keep the
+          # workflow stdlib-only).
+          payload=$(python3 -c '
+          import json, os
+          files = [f for f in os.environ["CHANGED"].splitlines() if f.strip()]
+          print(json.dumps({
+              "repo": os.environ["REPO"],
+              "pr_number": int(os.environ["PR_NUMBER"]),
+              "base_sha": os.environ["BASE_SHA"],
+              "merge_sha": os.environ["MERGE_SHA"],
+              "files": files,
+              "source": "vault-sync.yml",
+          }))
+          ')
+          # POST best-effort. We never fail the workflow on a sync miss —
+          # the Vault-MCP-Server is not on the critical path.
+          auth_args=()
+          if [ -n "${INGEST_TOKEN:-}" ]; then
+            auth_args=(-H "Authorization: Bearer ${INGEST_TOKEN}")
+          fi
+          if curl --fail --silent --show-error --max-time 30 \
+              -X POST "$INGEST_URL" \
+              -H 'Content-Type: application/json' \
+              "${auth_args[@]}" \
+              --data "$payload"; then
+            echo "::notice::vault-sync POST ok ($(echo "$CHANGED" | wc -l) files)"
+          else
+            echo "::warning::vault-sync POST failed — vault may be unreachable. Continuing without failing \
+          the pipeline (this sync is best-effort)."
+          fi

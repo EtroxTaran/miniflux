@@ -1,0 +1,88 @@
+---
+# ai-review-template-version: 0.1.1
+
+name: AI Review — Ops Alerts
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+  AI_REVIEW_DISPATCH_URL: ${{ vars.AI_REVIEW_DISPATCH_URL || secrets.AI_REVIEW_DISPATCH_URL ||
+    'http://127.0.0.1:5680/webhook/ai-review-dispatch' }}
+  AI_REVIEW_METRICS_PATH: ${{ vars.AI_REVIEW_METRICS_PATH ||
+    format('/home/clawd/.local/state/ai-review/metrics/{0}.jsonl', github.repository) }}
+  AI_REVIEW_OPS_ALERT_WINDOW: ${{ vars.AI_REVIEW_OPS_ALERT_WINDOW || '30m' }}
+  AI_REVIEW_OPS_ALERT_THRESHOLD: ${{ vars.AI_REVIEW_OPS_ALERT_THRESHOLD || '3' }}
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '*/15 * * * *'
+
+concurrency:
+  group: ai-review-ops-alerts
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  ops-alerts:
+    runs-on: ${{ fromJSON(vars.AI_REVIEW_STAGE_RUNS_ON || '["self-hosted","r2d2","ai-review"]') }}
+    timeout-minutes: 10
+    steps:
+      - name: Checkout default branch
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v6.0.3
+        with:
+          fetch-depth: 1
+
+      - name: Bootstrap runner PATH
+        run: |
+          echo "/usr/bin" >> "$GITHUB_PATH"
+          echo "/usr/local/bin" >> "$GITHUB_PATH"
+          echo "$HOME/.npm-global/bin" >> "$GITHUB_PATH"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Setup Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: '3.11'
+
+      - name: Install ai-review-pipeline
+        env:
+          GH_TOKEN: ${{ secrets.CROSS_REPO_PAT || secrets.GITHUB_TOKEN }}
+        run: |
+          if [ "${{ github.repository }}" = "EtroxTaran/x-ai-stack" ]; then
+            pip install -e packages/ai-review-pipeline
+          else
+            retry_ai_review_install() {
+              local attempt=1
+              local max_attempts=3
+              local delay=5
+              until "$@"; do
+                local status=$?
+                if [ "$attempt" -ge "$max_attempts" ]; then
+                  echo "::error::command failed after ${attempt} attempts: $*"
+                  return "$status"
+                fi
+                echo "command failed (attempt ${attempt}/${max_attempts}); retrying in ${delay}s: $*"
+                sleep "$delay"
+                attempt=$((attempt + 1))
+                delay=$((delay * 2))
+              done
+            }
+            tmp_pipeline="$(mktemp -d)"
+            retry_ai_review_install gh repo clone EtroxTaran/x-ai-stack "$tmp_pipeline" -- --depth 1 --branch main
+            retry_ai_review_install pip install "$tmp_pipeline/packages/ai-review-pipeline"
+          fi
+
+      - name: Notify persistent AI-review ops failures
+        env:
+          DISCORD_NOTIFICATION_WEBHOOK: ${{ secrets.DISCORD_NOTIFICATION_WEBHOOK }}
+        run: |
+          # TELEGRAM_OPS_BOT_TOKEN / TELEGRAM_OPS_CHAT_ID / TELEGRAM_OPS_TOPIC_AI_REVIEW: bb8-local (gateway.env),
+          # never on GitHub
+          set -a; source "$HOME/.config/hermes/gateway.env" 2>/dev/null || true; set +a
+          ai-review ops-log \
+            --path "$AI_REVIEW_METRICS_PATH" \
+            --since "$AI_REVIEW_OPS_ALERT_WINDOW" \
+            --threshold "$AI_REVIEW_OPS_ALERT_THRESHOLD" \
+            --notify

@@ -2,17 +2,17 @@ services:
   miniflux:
     image: miniflux/miniflux:latest
     ports:
-      - "8080"
+      - "127.0.0.1:8080:8080"
     depends_on:
       db:
         condition: service_healthy
     environment:
-      - DATABASE_URL=postgres://miniflux:${POSTGRES_PASSWORD:-miniflux2026}@db/miniflux?sslmode=disable
+      - DATABASE_URL=postgres://miniflux:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@db/miniflux?sslmode=disable
       - RUN_MIGRATIONS=1
       - CREATE_ADMIN=1
-      - ADMIN_USERNAME=${MINIFLUX_ADMIN_USER:-admin}
-      - ADMIN_PASSWORD=${MINIFLUX_ADMIN_PASSWORD:-crew2026!}
-      - BASE_URL=${MINIFLUX_BASE_URL:-https://starfleet-rss.etrox.de}
+      - ADMIN_USERNAME=${MINIFLUX_ADMIN_USER:?MINIFLUX_ADMIN_USER is required}
+      - ADMIN_PASSWORD=${MINIFLUX_ADMIN_PASSWORD:?MINIFLUX_ADMIN_PASSWORD is required}
+      - BASE_URL=${MINIFLUX_BASE_URL:?MINIFLUX_BASE_URL is required}
       - POLLING_FREQUENCY=15
       - BATCH_SIZE=50
       - POLLING_PARSING_ERROR_LIMIT=5
@@ -33,7 +33,7 @@ services:
     image: postgres:15-alpine
     environment:
       - POSTGRES_USER=miniflux
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-miniflux2026}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
       - POSTGRES_DB=miniflux
     volumes:
       - miniflux-db:/var/lib/postgresql/data

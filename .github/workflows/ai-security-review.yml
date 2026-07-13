@@ -1,0 +1,148 @@
+---
+# ai-review-template-version: 0.1.1
+# NOTE: parametrized from ai-portal@2026-04-20
+# Changes:
+#   - python3 -m scripts.ai-review.security_review → python -m ai_review_pipeline.stages.security_review
+#   - TELEGRAM_NOTIFICATION_WEBHOOK → DISCORD_NOTIFICATION_WEBHOOK
+#   - github.repository bleibt dynamisch
+#   - Preflight laeuft im ai-review CLI; Consumer-Repos brauchen kein separates Preflight-Skript
+#   - Comment "Für das Lesen des triggernden workflow_run-Kontexts" entfernt
+#     (workflow_run-Trigger wurde in Wave 2c bereits abgelöst)
+#   - Kein pull_request_target verwendet (war schon pull_request — konform)
+# Wave 5 (2026-04-20):
+#   - python -m ai_review_pipeline.stages.security_review → ai-review stage security
+#   - Setup Python + token-authenticated central checkout + local pip install Steps ergänzt
+
+name: AI Security Review (Stage 2)
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+  AI_REVIEW_DISPATCH_URL: ${{ vars.AI_REVIEW_DISPATCH_URL || secrets.AI_REVIEW_DISPATCH_URL ||
+    'http://127.0.0.1:5680/webhook/ai-review-dispatch' }}
+  AI_REVIEW_METRICS_PATH: ${{ vars.AI_REVIEW_METRICS_PATH ||
+    format('/home/clawd/.local/state/ai-review/metrics/{0}.jsonl', github.repository) }}
+
+# Stage 2: Gemini 2.5 Pro, geerdet auf einem semgrep-baseline-Scan.
+# Läuft PARALLEL zu Stage 1 + 3, direkt auf pull_request.synchronize.
+# Security-Stage ist `review-only` (skip_fix_loop default=True in
+# security_review.py). Kein Fix-Commit-Race mit Stage 1.
+# Schreibt Commit-Status `ai-review/security`.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+concurrency:
+  # Pro-PR-Gruppe wie Stage 1. cancel-in-progress hier TRUE weil Security
+  # keinen Fix-Loop hat, der sich selbst killen könnte — neuere Runs
+  # ersetzen ältere sauber.
+  group: ai-security-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write
+  statuses: write
+  checks: write
+  actions: read
+
+jobs:
+  security-review:
+    if: github.event.pull_request.draft == false && github.event.pull_request.user.login != 'dependabot[bot]'
+    runs-on: ${{ fromJSON(vars.AI_REVIEW_STAGE_RUNS_ON || '["self-hosted","r2d2","ai-review"]') }}
+    timeout-minutes: 20
+    steps:
+      # Security ist `review-only` (kein Fix-Loop in security_review.py),
+      # also gibt es keine [ai-fix] security:-Commits mehr. Der bisherige
+      # commit-message-Guard ist nicht nötig — aber wir wollen auch
+      # [ai-fix] code:-Commits von Stage 1 NICHT ignorieren (die müssen
+      # security auf dem konvergierten Stand nochmal prüfen).
+
+      - name: Checkout PR head
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v6.0.3
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+
+      - name: Bootstrap runner PATH
+        run: |
+          echo "/usr/bin" >> "$GITHUB_PATH"
+          echo "/usr/local/bin" >> "$GITHUB_PATH"
+          echo "$HOME/.npm-global/bin" >> "$GITHUB_PATH"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Setup Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: '3.11'
+
+      - name: Install ai-review-pipeline
+        env:
+          GH_TOKEN: ${{ secrets.CROSS_REPO_PAT || secrets.GITHUB_TOKEN }}
+        run: |
+          # Consumer repos never install ai-review-pipeline from the PR worktree on a
+          # pull_request self-hosted runner. The central pipeline repo may dogfood
+          # its local package only for same-repo branches, never for forks.
+          if [ "${{ github.repository }}" = "EtroxTaran/x-ai-stack" ] && \
+             [ "${{ github.event.pull_request.head.repo.full_name }}" = "${{ github.repository }}" ]; then
+            pip install -e packages/ai-review-pipeline
+          else
+            retry_ai_review_install() {
+              local attempt=1
+              local max_attempts=3
+              local delay=5
+              until "$@"; do
+                local status=$?
+                if [ "$attempt" -ge "$max_attempts" ]; then
+                  echo "::error::command failed after ${attempt} attempts: $*"
+                  return "$status"
+                fi
+                echo "command failed (attempt ${attempt}/${max_attempts}); retrying in ${delay}s: $*"
+                sleep "$delay"
+                attempt=$((attempt + 1))
+                delay=$((delay * 2))
+              done
+            }
+            tmp_pipeline="$(mktemp -d)"
+            retry_ai_review_install gh repo clone EtroxTaran/x-ai-stack "$tmp_pipeline" -- --depth 1 --branch main
+            retry_ai_review_install pip install "$tmp_pipeline/packages/ai-review-pipeline"
+          fi
+          pip install semgrep
+
+      - name: Preflight — CLI OAuth presence
+        run: echo "preflight skipped; ai-review stage runs with --skip-preflight"
+
+      - name: Run Stage 2 — cursor-agent security review (grok/claude fallback)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+          GITHUB_SERVER_URL: ${{ github.server_url }}
+          DISCORD_NOTIFICATION_WEBHOOK: ${{ secrets.DISCORD_NOTIFICATION_WEBHOOK }}
+          # Issue #265: the security stage runs cursor-agent first (the live,
+          # working code-cursor engine) and falls back to the bb8 LiteLLM gateway
+          # routes `grok` → `claude` on an infra marker. Routes are hardcoded in
+          # security_review._security_reviewer — no route-name env needed. The
+          # gateway is authenticated with the LiteLLM master key, NOT a Gemini key.
+          AI_REVIEW_LITELLM_URL: ${{ vars.AI_REVIEW_LITELLM_URL }}
+        run: |
+          # TELEGRAM_OPS_BOT_TOKEN / TELEGRAM_OPS_CHAT_ID / TELEGRAM_OPS_TOPIC_AI_REVIEW: bb8-local (gateway.env),
+          # never on GitHub
+          set -a; source "$HOME/.config/hermes/gateway.env" 2>/dev/null || true; set +a
+          # Issue #265 finding #4 + #418: bb8-local litellm.env exports LITELLM_MASTER_KEY,
+          # not AI_REVIEW_LITELLM_API_KEY — source it and map the name. The GitHub secret
+          # is gone (Issue #418: secrets live on bb8, never on GitHub), so the local
+          # litellm.env is the only source.
+          set -a; source "$HOME/.config/ai-workflows/litellm.env" 2>/dev/null || true; set +a
+          export AI_REVIEW_LITELLM_API_KEY="${AI_REVIEW_LITELLM_API_KEY:-${LITELLM_MASTER_KEY:-}}"
+          # Issue #265 finding #9 (local realization): surface the silent-401 failure
+          # mode. If the key is still empty after sourcing litellm.env, fail loud
+          # instead of letting the gateway 401 downstream.
+          if [ -z "${AI_REVIEW_LITELLM_API_KEY:-}" ]; then
+            echo "::error::AI_REVIEW_LITELLM_API_KEY empty after sourcing litellm.env"
+            exit 1
+          fi
+          ai-review stage security \
+            --pr ${{ github.event.pull_request.number }} \
+            --max-iterations 2 \
+            --skip-preflight \
+            --skip-fix-loop

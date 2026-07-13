@@ -1,0 +1,164 @@
+name: Weekly Auto-Merge Audit
+
+# ai-review-template-version: 0.1.1
+# Phase C.3 — wöchentlicher Audit-Run, Montag 06:00 UTC (08:00 CEST).
+# Ruft auto-merge-audit.py auf, postet die Zusammenfassung als
+# Discord-Webhook in den Alerts-Channel. Damit kann Nico am Montagmorgen
+# in 30 Sekunden sehen, was die letzte Woche durchgelaufen ist.
+#
+# Trigger:
+#   - schedule: jeden Montag 06:00 UTC
+#   - workflow_dispatch: manuell auslösbar mit optionalem since-Window
+
+on:
+  schedule:
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+    inputs:
+      since:
+        description: 'Audit window (e.g. 7d, 30d, 24h)'
+        required: false
+        default: '7d'
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    name: Run audit + post to Discord
+    runs-on: ${{ fromJSON(vars.AI_REVIEW_STAGE_RUNS_ON || '["self-hosted","r2d2","ai-review"]') }}
+    steps:
+      - name: Checkout (for auto-merge-audit.py)
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v6.0.3
+        with:
+          fetch-depth: 1
+
+      - name: Setup Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: '3.11'
+
+      - name: Install ai-review-pipeline
+        env:
+          GH_TOKEN: ${{ secrets.CROSS_REPO_PAT || secrets.GITHUB_TOKEN }}
+        run: |
+          # Consumer-Repo Pfad: pipeline aus zentralem Repo cloben + lokal installieren.
+          # ai-engineering-stack selbst kann editable installieren.
+          if [ "${{ github.repository }}" = "EtroxTaran/x-ai-stack" ]; then
+            pip install -e packages/ai-review-pipeline
+          else
+            retry_ai_review_install() {
+              local attempt=1
+              local max_attempts=3
+              local delay=5
+              until "$@"; do
+                local status=$?
+                if [ "$attempt" -ge "$max_attempts" ]; then
+                  echo "::error::command failed after ${attempt} attempts: $*"
+                  return "$status"
+                fi
+                echo "command failed (attempt ${attempt}/${max_attempts}); retrying in ${delay}s: $*"
+                sleep "$delay"
+                attempt=$((attempt + 1))
+                delay=$((delay * 2))
+              done
+            }
+            tmp_pipeline="$(mktemp -d)"
+            retry_ai_review_install gh repo clone EtroxTaran/x-ai-stack "$tmp_pipeline" -- --depth 1 --branch main
+            retry_ai_review_install pip install "$tmp_pipeline/packages/ai-review-pipeline"
+          fi
+
+      - name: Run audit
+        id: audit
+        env:
+          AI_REVIEW_METRICS_PATH: ${{ vars.AI_REVIEW_METRICS_PATH }}
+          SINCE: ${{ inputs.since || '7d' }}
+        run: |
+          set -euo pipefail
+          # Default-Pfad falls die Var nicht gesetzt ist
+          if [ -z "${AI_REVIEW_METRICS_PATH:-}" ]; then
+            export AI_REVIEW_METRICS_PATH="$HOME/.local/state/ai-review/metrics/${{ github.repository }}.jsonl"
+          fi
+          # Skript-Pfad: ai-engineering-stack hat es lokal, Consumer-Repos haben
+          # die installierte CLI in $PATH.
+          if [ -f packages/ai-review-pipeline/scripts/auto-merge-audit.py ]; then
+            audit_script="packages/ai-review-pipeline/scripts/auto-merge-audit.py"
+          elif [ -f "$tmp_pipeline/packages/ai-review-pipeline/scripts/auto-merge-audit.py" ]; then
+            audit_script="$tmp_pipeline/packages/ai-review-pipeline/scripts/auto-merge-audit.py"
+          else
+            audit_script=$(python3 -c 'import importlib.util as u; print(
+              u.find_spec("ai_review_pipeline").submodule_search_locations[0])')/scripts/auto-merge-audit.py
+          fi
+          echo "Using audit script: $audit_script"
+
+          # JSON für Discord
+          json_summary=$(python3 "$audit_script" --since "$SINCE" --json)
+          echo "$json_summary" > /tmp/audit.json
+
+          # Text für Workflow-Logs
+          python3 "$audit_script" --since "$SINCE"
+
+          # An GITHUB_OUTPUT (escaping für Multiline)
+          {
+            echo "json<<AUDIT_EOF"
+            echo "$json_summary"
+            echo "AUDIT_EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Post to Discord
+        if: ${{ vars.DISCORD_AUDIT_WEBHOOK != '' || env.DISCORD_NOTIFICATION_WEBHOOK != '' }}
+        env:
+          DISCORD_AUDIT_WEBHOOK: ${{ vars.DISCORD_AUDIT_WEBHOOK }}
+          DISCORD_NOTIFICATION_WEBHOOK: ${{ secrets.DISCORD_NOTIFICATION_WEBHOOK }}
+          REPO: ${{ github.repository }}
+          SINCE: ${{ inputs.since || '7d' }}
+          AUDIT_JSON: ${{ steps.audit.outputs.json }}
+        run: |
+          set -euo pipefail
+          webhook="${DISCORD_AUDIT_WEBHOOK:-$DISCORD_NOTIFICATION_WEBHOOK}"
+          if [ -z "$webhook" ]; then
+            echo "::notice::No Discord webhook configured — skipping post."
+            exit 0
+          fi
+          # Build a compact Discord-friendly summary
+          python3 <<'PY' > /tmp/discord-payload.json
+          import json, os
+          data = json.loads(os.environ.get("AUDIT_JSON") or "{}")
+          repo = os.environ.get("REPO", "")
+          since = os.environ.get("SINCE", "7d")
+          total = data.get("total", 0)
+          by_label = data.get("by_label_path", {})
+          by_merger = data.get("by_merger", {})
+          recent = data.get("recent_titles", [])
+
+          lines = [f"**Auto-Merge Audit — {repo} — last {since}**", ""]
+          lines.append(f"Total auto_merge events: **{total}**")
+          if by_label:
+              lines.append("")
+              lines.append("**By label path:**")
+              for label, count in sorted(by_label.items(), key=lambda kv: (-kv[1], kv[0])):
+                  lines.append(f"• `{label}`: {count}")
+          if by_merger:
+              lines.append("")
+              lines.append("**By merger:**")
+              for merger, count in sorted(by_merger.items(), key=lambda kv: (-kv[1], kv[0])):
+                  lines.append(f"• {merger}: {count}")
+          if recent:
+              lines.append("")
+              lines.append("**Recent (top 5):**")
+              for entry in recent[:5]:
+                  num = entry.get("pr_number")
+                  title = entry.get("title", "")
+                  lines.append(f"• #{num}: {title}")
+
+          content = "\n".join(lines)[:1900]  # Discord 2000-char-limit safety
+          json.dump({"content": content}, open("/tmp/discord-payload.json", "w"))
+          PY
+          curl --fail --silent --show-error --max-time 15 \
+            -X POST "$webhook" \
+            -H "Content-Type: application/json" \
+            --data @/tmp/discord-payload.json \
+            && echo "::notice::audit posted to Discord" \
+            || echo "::warning::Discord post failed — audit log still available in workflow output"
+        continue-on-error: true

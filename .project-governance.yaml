@@ -1,0 +1,14 @@
+version: 1
+lifecycle: maintenance
+collaboration_profile: solo
+scale_profile: simple
+hitl_policy: sensitive-only
+team_readiness: not-applicable
+approval_policy: manual-maintenance
+required_human_approvals: 0
+wiki_enabled: false
+graph_enabled: false
+ai_review_enabled: true
+watcher_enabled: true
+auto_merge_enabled: false
+activation: approved-security-cleanup-2026-07-13

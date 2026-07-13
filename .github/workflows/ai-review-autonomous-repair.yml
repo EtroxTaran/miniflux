@@ -1,0 +1,137 @@
+---
+# ai-review-template-version: 0.1.1
+# Autonomous repair orchestrator. No pull_request_target; dispatch-only with
+# author-gated callers (nachfrage/Discord) and self-hosted runner credentials.
+
+name: AI Review — Autonomous Repair
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+  AI_REVIEW_DISPATCH_URL: ${{ vars.AI_REVIEW_DISPATCH_URL || secrets.AI_REVIEW_DISPATCH_URL ||
+    'http://127.0.0.1:5680/webhook/ai-review-dispatch' }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: 'PR number to repair'
+        required: true
+        type: string
+      max_iterations:
+        description: 'Maximum repair attempts before partial follow-up / HITL'
+        required: false
+        default: '4'
+        type: string
+
+concurrency:
+  group: ai-review-repair-${{ inputs.pr_number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+  pull-requests: write
+  statuses: write
+  actions: read
+
+jobs:
+  orchestrate:
+    runs-on: ${{ fromJSON(vars.AI_REVIEW_STAGE_RUNS_ON || '["self-hosted","r2d2","ai-review"]') }}
+    timeout-minutes: 25
+    steps:
+      - name: Resolve PR head
+        id: pr
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+        run: |
+          set -euo pipefail
+          meta=$(gh pr view "$PR_NUMBER" \
+            --json headRefOid,headRefName,baseRefName,isCrossRepository \
+            --repo "${{ github.repository }}")
+          sha=$(echo "$meta" | python3 -c "import json,sys; print(json.load(sys.stdin)['headRefOid'])")
+          branch=$(echo "$meta" | python3 -c "import json,sys; print(json.load(sys.stdin)['headRefName'])")
+          is_cross_repo=$(echo "$meta" | python3 -c "import json,sys; print(
+            str(json.load(sys.stdin)['isCrossRepository']).lower())")
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "branch=$branch" >> "$GITHUB_OUTPUT"
+          if [ "$is_cross_repo" = "true" ]; then
+            echo "same_repo=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "same_repo=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout PR head
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v6.0.3
+        with:
+          ref: ${{ steps.pr.outputs.sha }}
+          fetch-depth: 0
+
+      - name: Bootstrap runner PATH
+        run: |
+          echo "/usr/bin" >> "$GITHUB_PATH"
+          echo "/usr/local/bin" >> "$GITHUB_PATH"
+          echo "$HOME/.npm-global/bin" >> "$GITHUB_PATH"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Setup Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: '3.11'
+
+      - name: Install ai-review-pipeline
+        env:
+          GH_TOKEN: ${{ secrets.CROSS_REPO_PAT || secrets.GITHUB_TOKEN }}
+        run: |
+          # Consumer repos never install ai-review-pipeline from the PR worktree on a
+          # self-hosted runner. The central pipeline repo may dogfood its local
+          # package only for same-repo branches, never for forks.
+          if [ "${{ github.repository }}" = "EtroxTaran/x-ai-stack" ] && \
+             [ "${{ steps.pr.outputs.same_repo }}" = "true" ]; then
+            pip install -e packages/ai-review-pipeline
+          else
+            retry_ai_review_install() {
+              local attempt=1
+              local max_attempts=3
+              local delay=5
+              until "$@"; do
+                local status=$?
+                if [ "$attempt" -ge "$max_attempts" ]; then
+                  echo "::error::command failed after ${attempt} attempts: $*"
+                  return "$status"
+                fi
+                echo "command failed (attempt ${attempt}/${max_attempts}); retrying in ${delay}s: $*"
+                sleep "$delay"
+                attempt=$((attempt + 1))
+                delay=$((delay * 2))
+              done
+            }
+            tmp_pipeline="$(mktemp -d)"
+            retry_ai_review_install gh repo clone EtroxTaran/x-ai-stack "$tmp_pipeline" -- --depth 1 --branch main
+            retry_ai_review_install pip install "$tmp_pipeline/packages/ai-review-pipeline"
+          fi
+
+      - name: Git identity (github-actions[bot])
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Preflight — Claude CLI OAuth presence
+        run: echo "preflight skipped; ai-review stage runs with --skip-preflight"
+
+      - name: Run autonomous repair orchestrator
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPOSITORY: ${{ github.repository }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+          MAX_ITERATIONS: ${{ inputs.max_iterations }}
+          AUTO_FIX_MAX_FILES: '10'
+          PR_HEAD_SHA: ${{ steps.pr.outputs.sha }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+        run: |
+          ai-review orchestrate \
+            --pr "$PR_NUMBER" \
+            --max-iterations "$MAX_ITERATIONS" \
+            --repo "$REPOSITORY" \
+            --sha "$PR_HEAD_SHA" \
+            --worktree "$GITHUB_WORKSPACE" \
+            --audit-path "$GITHUB_WORKSPACE/.ai-review/audit.jsonl"

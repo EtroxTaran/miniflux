@@ -1,35 +1,42 @@
-# 📰 Miniflux RSS Reader
+# Miniflux RSS Reader
 
-Self-hosted RSS reader for the crew. Deployed via Dokploy.
+Maintenance-only Compose definition for the private Miniflux service.
 
-## Deployment
+The operative runtime source of truth is
+`EtroxTaran/x-ai-stack/docs/v2/RUNTIME-SOURCE-OF-TRUTH.md`: Miniflux runs on
+Hetzner inside the private Docker network. UI access is loopback/tailnet-only;
+there is no public Traefik router or public API hostname.
 
-Dokploy picks up `docker-compose.yml` on push and deploys automatically.
+## Required secret/config variables
 
-### Environment Variables (set in Dokploy)
+Set these in the Dokploy/host secret store. The Compose file intentionally has
+no usable fallback values.
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `POSTGRES_PASSWORD` | `miniflux2026` | PostgreSQL password |
-| `MINIFLUX_ADMIN_USER` | `admin` | Admin username |
-| `MINIFLUX_ADMIN_PASSWORD` | `crew2026!` | Admin password |
-| `MINIFLUX_BASE_URL` | `https://starfleet-rss.etrox.de` | Public URL |
+| Variable | Purpose |
+|---|---|
+| `POSTGRES_PASSWORD` | dedicated Miniflux database password |
+| `MINIFLUX_ADMIN_USER` | non-default administrator username |
+| `MINIFLUX_ADMIN_PASSWORD` | unique administrator password |
+| `MINIFLUX_BASE_URL` | private loopback/tailnet base URL |
 
-### Access
+Copy `.env.example` only for local validation and supply values through a
+non-versioned `.env`. Never paste production values into issues, logs or PRs.
 
-- **URL:** `https://starfleet-rss.etrox.de`
-- **API:** `https://starfleet-rss.etrox.de/v1/`
-- **Docs:** https://miniflux.app/docs/api.html
+## Access and API keys
 
-### API Key Generation
+- The Compose port is bound to `127.0.0.1:8080` only.
+- Tailnet exposure is configured outside this repository.
+- Create API keys in Miniflux settings and store them in the consuming service's
+  secret store. Do not place them in this repository.
 
-After first login, go to Settings → API Keys → Create.
-Store the key in OpenClaw: add `MINIFLUX_API_KEY=<key>` and `MINIFLUX_URL=https://starfleet-rss.etrox.de` to `~/.openclaw/env`.
+## Credential rotation after exposure
 
-### Features
+1. Generate new unique database, administrator and API credentials.
+2. Update the production secret store without publishing the values.
+3. Apply through the approved declarative Dokploy path.
+4. Verify private UI/API health and the Portal feed integration.
+5. Revoke the old administrator/API credentials and record only timestamp and
+   verification evidence, never the values.
 
-- Lightweight, fast, privacy-focused
-- REST API for integration with OpenClaw
-- Automatic feed polling (every 15 min)
-- Auto-cleanup (read: 60 days, unread: 180 days)
-- Keyboard shortcuts for power users
+The values that previously appeared in this repository must be treated as
+compromised even if they were intended as examples.

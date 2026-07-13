@@ -1,0 +1,158 @@
+name: Auto-Merge-Label
+
+# ai-review-template-version: 0.1.1
+# Setzt das Label `auto-merge-approved` automatisch, sobald
+# `ai-review/consensus` auf `success` schaltet — außer ein Pfad-
+# Sensitivitäts-Guard greift (siehe ADR-005).
+#
+# Pfad-Guard (setzt stattdessen `block-auto-merge`):
+#   - .github/workflows/**               (CI selbst-modifizierend)
+#   - packages/ai-review-pipeline/**     (Review-Engine selbst)
+#   - packages/agent-stack/contracts/**  (Bounded-Context-Surfaces)
+#   - docs/v2/10-adr/**                  (aktive Architektur-Entscheidungen)
+#   - docs/engineering-stack/adr/**      (Dev-Stack-ADRs)
+#   - docs/immo/adr/**                   (immo-Bounded-Context-ADRs)
+#   - infra/ai-server/docs/adr/**        (AI-Server-ADRs)
+#   - **/AGENTS.md                       (zentrale Regel-SoT, auch verschachtelt)
+#
+# Trigger: status-Event mit context = "ai-review/consensus" und state = success.
+# Der separate Workflow `auto-merge.yml` reagiert auf das Label und ruft
+# `gh pr merge --auto --squash --delete-branch` auf.
+#
+# Manueller Override: User kann `block-auto-merge` jederzeit selbst setzen,
+# Workflow respektiert ein bereits vorhandenes Label.
+
+on:
+  status: {}
+
+permissions:
+  contents: read
+  pull-requests: write
+  statuses: read
+
+jobs:
+  set-label:
+    name: Set auto-merge-approved or block-auto-merge
+    runs-on: ${{ fromJSON(vars.AI_REVIEW_STAGE_RUNS_ON || '["self-hosted","r2d2","ai-review"]') }}
+    # Filter: nur ai-review/consensus Statuses mit state success
+    if: |
+      github.event.context == 'ai-review/consensus'
+      && github.event.state == 'success'
+    steps:
+      - name: Find PR for this commit
+        id: pr
+        env:
+          GH_TOKEN: ${{ secrets.CROSS_REPO_PAT || secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          SHA: ${{ github.event.sha }}
+        run: |
+          set -euo pipefail
+          # Find open PR whose head SHA matches the status commit
+          pr_json=$(gh api "repos/$GH_REPO/commits/$SHA/pulls" \
+            -H "Accept: application/vnd.github+json")
+          num=$(printf '%s' "$pr_json" | jq -r '[.[] | select(.state == "open")][0].number // empty')
+          if [ -z "$num" ]; then
+            echo "::notice::No open PR found for SHA $SHA — skipping."
+            echo "found=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "number=$num" >> "$GITHUB_OUTPUT"
+          echo "found=true" >> "$GITHUB_OUTPUT"
+
+      - name: Inspect existing labels (skip if already decided)
+        id: labels
+        if: steps.pr.outputs.found == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.CROSS_REPO_PAT || secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          PR: ${{ steps.pr.outputs.number }}
+        run: |
+          set -euo pipefail
+          labels=$(gh pr view "$PR" --json labels --jq '[.labels[].name] | join(",")')
+          echo "labels=$labels" >> "$GITHUB_OUTPUT"
+          if printf '%s' "$labels" | grep -qE '(^|,)block-auto-merge(,|$)'; then
+            echo "decided=block" >> "$GITHUB_OUTPUT"
+          elif printf '%s' "$labels" | grep -qE '(^|,)(auto-merge-approved|merge-approved-by-nico)(,|$)'; then
+            echo "decided=approve" >> "$GITHUB_OUTPUT"
+          else
+            echo "decided=none" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Path-sensitivity guard
+        id: guard
+        if: |
+          steps.pr.outputs.found == 'true'
+          && steps.labels.outputs.decided == 'none'
+        env:
+          GH_TOKEN: ${{ secrets.CROSS_REPO_PAT || secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          PR: ${{ steps.pr.outputs.number }}
+        run: |
+          set -euo pipefail
+          files=$(gh pr diff "$PR" --name-only)
+          # Critical paths: pipeline-self-modifying changes
+          # Critical-Pattern matcht relative Datei-Pfade aus `gh pr diff --name-only`.
+          # Prefix-Alternativen sind an ^ verankert; AGENTS.md matcht an JEDER
+          # Pfad-Ebene (^ ODER /) — sonst entgehen verschachtelte Governance-Docs
+          # wie packages/agent-stack/AGENTS.md dem Guard (Issue #112).
+          # ADR-Verzeichnisse explizit gelistet — docs/adr/ existiert in diesem
+          # Repo nicht; reale ADRs liegen unter docs/v2/10-adr usw. (Issue #88/#112).
+          critical_pattern='^(\.github/workflows/|packages/ai-review-pipeline/|packages/agent-stack/contracts/|docs/v2/10-adr/|docs/engineering-stack/adr/|docs/immo/adr/|infra/ai-server/docs/adr/)|(^|/)AGENTS\.md$'
+          if printf '%s\n' "$files" | grep -qE "$critical_pattern"; then
+            matched=$(printf '%s\n' "$files" | grep -E "$critical_pattern" | head -5 | paste -sd ', ')
+            echo "guard=block" >> "$GITHUB_OUTPUT"
+            echo "matched=$matched" >> "$GITHUB_OUTPUT"
+          else
+            echo "guard=approve" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Ensure required labels exist (idempotent)
+        if: |
+          steps.pr.outputs.found == 'true'
+          && steps.labels.outputs.decided == 'none'
+        env:
+          GH_TOKEN: ${{ secrets.CROSS_REPO_PAT || secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          # gh label create exit-codes:
+          #   0 — created
+          #   1 — already exists (we accept this) ODER permission/network error (we re-raise)
+          # Wir filtern auf 'already exists' und akzeptieren das.
+          ensure_label() {
+            local name="$1" color="$2" desc="$3"
+            if gh label create "$name" --color "$color" --description "$desc" 2>&1 | grep -q "already exists"; then
+              return 0
+            fi
+            # Wenn Output anders war: prüfen ob Label jetzt existiert. Wenn ja → ok.
+            gh label list --search "$name" --json name --jq '.[].name' | grep -qx "$name"
+          }
+          ensure_label auto-merge-approved 0E8A16 \
+            "Pipeline-Konsens grün, Auto-Merge freigegeben (gesetzt von auto-merge-label.yml)"
+          ensure_label block-auto-merge B60205 \
+            "Pipeline-Self-Modifying-Pfad oder manueller Override — Auto-Merge blockiert (siehe ADR-005)"
+
+      - name: Apply block-auto-merge label (path guard)
+        if: steps.guard.outputs.guard == 'block'
+        env:
+          GH_TOKEN: ${{ secrets.CROSS_REPO_PAT || secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          PR: ${{ steps.pr.outputs.number }}
+          MATCHED: ${{ steps.guard.outputs.matched }}
+        run: |
+          set -euo pipefail
+          gh pr edit "$PR" --add-label block-auto-merge
+          gh pr comment "$PR" --body "🛡️ **Auto-Merge blockiert** — dieser PR berührt pipeline-self-modifying-Pfade: \
+          \`$MATCHED\`. Manueller Merge nötig nach Review (siehe ADR-005)."
+
+      - name: Apply auto-merge-approved label
+        if: steps.guard.outputs.guard == 'approve'
+        env:
+          GH_TOKEN: ${{ secrets.CROSS_REPO_PAT || secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          PR: ${{ steps.pr.outputs.number }}
+        run: |
+          set -euo pipefail
+          gh pr edit "$PR" --add-label auto-merge-approved
+          gh pr comment "$PR" --body "✅ **Auto-Merge freigegeben** — Konsens der 5 Reviewer ist grün, \
+          kein Pfad-Guard greift. \`auto-merge.yml\` registriert den PR für GitHub-Auto-Merge."

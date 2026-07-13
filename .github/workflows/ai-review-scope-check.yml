@@ -1,0 +1,82 @@
+---
+# ai-review-template-version: 0.1.1
+# NOTE: parametrized from ai-portal@2026-04-20
+# Changes:
+#   - github.repository bleibt dynamisch (war bereits expressions, nicht hardcoded)
+#   - Kein Python-Modul-Aufruf hier (reines Shell + gh CLI)
+#   - Kein pull_request_target — Trigger ist pull_request (konform)
+#   - Runs-on via AI_REVIEW_STAGE_RUNS_ON (self-hosted); pure Python, ~10s
+#   - Keine projekt-spezifischen Änderungen notwendig — vollständig generisch
+
+name: AI Review — Scope Check
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+  AI_REVIEW_DISPATCH_URL: ${{ vars.AI_REVIEW_DISPATCH_URL || secrets.AI_REVIEW_DISPATCH_URL ||
+    'http://127.0.0.1:5680/webhook/ai-review-dispatch' }}
+
+# Schnelles Regex-Gate vor den LLM-Stages. Validiert dass die PR genug
+# Kontext hat, damit Reviewer sie fachlich beurteilen können:
+#   Closing-Keyword mit Issue-Referenz (Closes/Fixes/Resolves #N)
+#
+# Ziel: vermeidet dass ein PR mit reinem Titel und leerem Body LLM-Budget
+# verbrennt, während der Reviewer raten muss was die Intention war.
+# Posted `ai-review/scope-check` als Commit-Status — nicht required auf main
+# (informational only), aber erscheint sichtbar im PR-UI.
+#
+# Läuft auf self-hosted via AI_REVIEW_STAGE_RUNS_ON — pure Python, ~10s.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited, ready_for_review]
+
+concurrency:
+  group: ai-review-scope-check-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: read
+  statuses: write
+
+jobs:
+  scope-check:
+    # Skip dependabot/dependency-bump PRs: they carry no Closes/Refs #N issue link
+    # by nature, so the scope check only produces noise on them.
+    if: github.event.pull_request.draft == false && github.event.pull_request.user.login != 'dependabot[bot]'
+    runs-on: ${{ fromJSON(vars.AI_REVIEW_STAGE_RUNS_ON || '["self-hosted","r2d2","ai-review"]') }}
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v6.0.3
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Validate PR body shape
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          BODY=$(gh pr view "$PR_NUMBER" --json body --jq '.body // ""')
+          STATE="success"
+          DESC="PR-Body hat Issue-Ref"
+          if printf '%s' "$BODY" | grep -qiE '\b(closes?|closed|fix(es|ed)?|resolv(es|ed)?)\s*:?\s*#[0-9]+'; then
+            DESC="Issue-Referenz gefunden"
+          else
+            STATE="failure"
+            DESC="Fehlt: Closing-Keyword mit Issue-Referenz (Closes/Fixes #N)"
+          fi
+          echo "Resolved state: $STATE — $DESC"
+          for attempt in 1 2 3; do
+            if gh api "repos/${{ github.repository }}/statuses/$HEAD_SHA" \
+              -f state="$STATE" \
+              -f context="ai-review/scope-check" \
+              -f description="$DESC" \
+              -f target_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"; then
+              exit 0
+            fi
+            sleep "$((attempt * 5))"
+          done
+          echo "ERROR: Could not publish ai-review/scope-check commit status after retries"
+          exit 1
