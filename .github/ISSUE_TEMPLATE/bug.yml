@@ -48,7 +48,7 @@ body:
     attributes:
       label: Environment
       description: "Browser/OS/CLI-Versionen, relevante Feature-Flags, Host (r2d2/Laptop)."
-      placeholder: "Firefox 142 · Ubuntu 25.10 · Node 22.4 · ai-portal v2.3.1"
+      placeholder: "Miniflux-Version · Docker-Compose-Version · Host · betroffener Feed"
     validations:
       required: false
 

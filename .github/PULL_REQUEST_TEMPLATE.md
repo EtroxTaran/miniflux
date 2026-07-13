@@ -18,9 +18,9 @@ Closes #<N>
 <Copy Gherkin scenarios from the linked issue. Tick each, reference the test that proves it.>
 
 - [ ] Scenario: "<title from issue>"
-  - Verified by: `path/to/test.spec.ts`
+  - Verified by: `tests/security-config.test.sh`
 - [ ] Scenario: "<title 2>"
-  - Verified by: `path/to/other.spec.ts`
+  - Verified by: `tests/security-config.test.sh`
 
 ## Risk Notes
 
@@ -31,7 +31,7 @@ Closes #<N>
 ## Test Plan
 
 - [ ] Unit tests added (TDD: red → green → refactor)
-- [ ] E2E test with Playwright `page.route()` mocks (for UI changes)
+- [ ] Compose/security contract updated when runtime configuration changes
 - [ ] Manual smoke test in browser / CLI
 - [ ] `docker compose config --no-interpolate && bash tests/security-config.test.sh` local green
 - [ ] `ai-review issue-report` green or documented why not applicable
@@ -50,4 +50,4 @@ Closes #<N>
 
 ---
 
-AI-Review-Pipeline runs on push. Consensus status `ai-review/consensus` is required for merge.
+LOCAL-CI watcher `ai-review-watch@miniflux.service` reviews open PRs and posts the required `ai-review/consensus`; copied GitHub Actions review workflows are intentionally absent.

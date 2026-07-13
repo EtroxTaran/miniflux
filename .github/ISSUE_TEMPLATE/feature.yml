@@ -50,7 +50,7 @@ body:
       value: |
         - [ ] Code nach TDD implementiert (Red → Green → Refactor)
         - [ ] Unit-Tests pro AC
-        - [ ] E2E-Test für UI-Flows (Playwright, page.route() Mocks)
+        - [ ] Compose-/Security-Vertrag für Runtime-Änderungen geprüft
         - [ ] Dependencies/Sub-Issues in GitHub gepflegt oder explizit "None"
         - [ ] PR mit `Closes #<this>` verlinkt
         - [ ] AI-Review-Pipeline: all required stages green oder dokumentierter HITL-Entscheid
