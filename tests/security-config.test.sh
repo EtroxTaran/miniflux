@@ -52,7 +52,9 @@ grep -q 'enabled: true' "${review_config}"
 
 test -f "${review_marker}"
 grep -q 'workflow_dispatch:' "${review_marker}"
-grep -q 'if:.*false' "${review_marker}"
+grep -q 'confirm_local_watcher:' "${review_marker}"
+grep -q 'default: false' "${review_marker}"
+grep -q 'if:.*inputs.confirm_local_watcher' "${review_marker}"
 if grep -Eq '^[[:space:]]+(pull_request|push):' "${review_marker}"; then
   printf 'AI-review ownership marker must never trigger an automatic Actions run\n' >&2
   exit 1

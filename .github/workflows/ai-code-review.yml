@@ -2,13 +2,19 @@ name: AI Review ownership marker
 
 on:
   workflow_dispatch:
+    inputs:
+      confirm_local_watcher:
+        description: Confirm the documented bb8 watcher ownership
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
 
 jobs:
   local-watcher-owns-review:
-    if: ${{ false }}
+    if: inputs.confirm_local_watcher
     runs-on: ubuntu-latest
     steps:
       - run: echo "Automatic review is owned by ai-review-watch@miniflux.service on bb8."
