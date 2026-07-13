@@ -1,0 +1,90 @@
+---
+# Kopier-Vorlage für <project>/.ai-review/config.yaml
+version: '1.0'
+mode: quality # quality = full gate, fast = temporary Codex-only + deterministic checks
+
+reviewers:
+  codex: gpt-5.5
+  cursor: composer-2
+  # security stage (Issue #265): cursor-agent primary, LiteLLM grok→claude fallback.
+  gemini: gemini-3.1-pro-preview # legacy key — no longer the ai-review security engine
+  claude: claude-opus-4-8
+
+stages:
+  code_review:
+    enabled: true
+    blocking: true
+    timeout_seconds: 600
+  cursor_review:
+    enabled: true
+    blocking: false
+  security:
+    enabled: true
+    blocking: true
+  design:
+    enabled: true
+    blocking: true
+  ac_validation:
+    enabled: true
+    blocking: true
+    # judge_model / second_opinion_model are reserved compatibility fields.
+    # Current CLI path is deterministic PR-body/test mapping:
+    # ai-review ac-validate passes llm_judge=None and does not read them.
+    # judge_model: gpt-5.5
+    # second_opinion_model: claude-opus-4-8
+    min_coverage: 1.0
+    # Opt-in (default off): zähle verify.sh-Gates als gültige AC-Coverage für
+    # Infra/Ops-PRs, die ihre Acceptance Criteria über mechanische Provisioning-
+    # Gates statt Unit-Test-Dateien verifizieren. Scenario im PR-Body auf eine
+    # geänderte verify.sh mappen: "- [x] **Scenario: X** Verified by: `…/verify.sh`".
+    # accept_verify_gates: true
+    # verify_gate_patterns: ["*/verify.sh"]   # optional; default ["*/verify.sh", "verify.sh"]
+  docs_validation:
+    enabled: true
+    blocking: true
+    impact_file: wiki/_meta/docs-impact.yaml
+    canonical_sources_file: wiki/_meta/canonical-sources.yaml
+
+consensus:
+  success_threshold: 8
+  soft_threshold: 5
+  fail_closed_on_missing_stage: true
+
+notifications:
+  target: telegram
+  discord:
+    channel_id: '${DISCORD_CHANNEL_ID}'
+    mention_role: '@here'
+    sticky_message: true
+  telegram:
+    bot_token_env: TELEGRAM_OPS_BOT_TOKEN
+    chat_id_env: TELEGRAM_OPS_CHAT_ID
+    topic_env: TELEGRAM_OPS_TOPIC_AI_REVIEW
+
+human_escalation:
+  owner: Nico
+  discord_owner_user_id_env: DISCORD_OWNER_USER_ID
+  excluded_software_development_recipients: ['Sabine']
+
+watcher:
+  enabled: true
+  profile: quality
+  concurrency: 1
+  state_dir: '~/.local/state/ai-review-watch'
+
+deploy:
+  enabled: false
+  strategy: contract-only
+  command: ''
+  environment: ''
+  health_urls: []
+  smoke_commands: []
+
+ops_alerts:
+  enabled: true
+  window: 30m
+  threshold: 3
+
+waivers:
+  min_reason_length: 30
+  allowed_labels: ['pipeline-bootstrap']

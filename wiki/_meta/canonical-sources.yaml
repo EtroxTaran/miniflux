@@ -1,0 +1,12 @@
+version: 1
+project: miniflux
+topics:
+  project_governance:
+    canonical: AGENTS.md
+    summaries: [.project-governance.yaml]
+  review_automation:
+    canonical: .ai-review/config.yaml
+    summaries: []
+  project_documentation:
+    canonical: README.md
+    summaries: []
