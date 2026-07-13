@@ -67,6 +67,7 @@ jobs:
             tmp_pipeline="$(mktemp -d)"
             retry_ai_review_install gh repo clone EtroxTaran/x-ai-stack "$tmp_pipeline" -- --depth 1 --branch main
             retry_ai_review_install pip install "$tmp_pipeline/packages/ai-review-pipeline"
+            echo "AI_REVIEW_PIPELINE_CHECKOUT=$tmp_pipeline" >> "$GITHUB_ENV"
           fi
 
       - name: Run audit
@@ -84,8 +85,8 @@ jobs:
           # die installierte CLI in $PATH.
           if [ -f packages/ai-review-pipeline/scripts/auto-merge-audit.py ]; then
             audit_script="packages/ai-review-pipeline/scripts/auto-merge-audit.py"
-          elif [ -f "$tmp_pipeline/packages/ai-review-pipeline/scripts/auto-merge-audit.py" ]; then
-            audit_script="$tmp_pipeline/packages/ai-review-pipeline/scripts/auto-merge-audit.py"
+          elif [ -f "$AI_REVIEW_PIPELINE_CHECKOUT/packages/ai-review-pipeline/scripts/auto-merge-audit.py" ]; then
+            audit_script="$AI_REVIEW_PIPELINE_CHECKOUT/packages/ai-review-pipeline/scripts/auto-merge-audit.py"
           else
             audit_script=$(python3 -c 'import importlib.util as u; print(
               u.find_spec("ai_review_pipeline").submodule_search_locations[0])')/scripts/auto-merge-audit.py

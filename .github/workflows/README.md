@@ -263,7 +263,7 @@ Vollständiges Step-by-Step-Runbook:
 Kurzform:
 
 ```bash
-pip install "git+https://github.com/EtroxTaran/ai-engineering-stack.git@main#subdirectory=packages/ai-review-pipeline"
+pip install "git+https://github.com/EtroxTaran/x-ai-stack.git@main#subdirectory=packages/ai-review-pipeline"
 gh extension install EtroxTaran/gh-ai-review
 cd /path/to/your-project
 gh ai-review install    # kopiert Templates + legt .ai-review/config.yaml an
