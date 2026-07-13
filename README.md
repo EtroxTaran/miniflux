@@ -14,9 +14,7 @@ no usable fallback values.
 
 | Variable | Purpose |
 |---|---|
-| `POSTGRES_PASSWORD` | dedicated Miniflux database password |
-| `MINIFLUX_ADMIN_USER` | non-default administrator username |
-| `MINIFLUX_ADMIN_PASSWORD` | unique administrator password |
+| `POSTGRES_PASSWORD` | dedicated Miniflux database password; use only URI-safe `A-Za-z0-9_-` characters |
 | `MINIFLUX_BASE_URL` | private loopback/tailnet base URL |
 
 Copy `.env.example` only for local validation and supply values through a
@@ -31,12 +29,36 @@ non-versioned `.env`. Never paste production values into issues, logs or PRs.
 
 ## Credential rotation after exposure
 
-1. Generate new unique database, administrator and API credentials.
-2. Update the production secret store without publishing the values.
-3. Apply through the approved declarative Dokploy path.
-4. Verify private UI/API health and the Portal feed integration.
-5. Revoke the old administrator/API credentials and record only timestamp and
-   verification evidence, never the values.
+`POSTGRES_PASSWORD` is used both by PostgreSQL and inside Miniflux's URL-form
+`DATABASE_URL`. Generate a long URI-safe value, for example with
+`openssl rand -base64 64 | tr -dc 'A-Za-z0-9_-' | head -c 48`; do not use
+reserved URL characters.
+
+For an existing persistent volume, changing Compose variables alone does not
+rotate either credential. Use this order during an approved maintenance window:
+
+1. Rotate the existing database role interactively inside PostgreSQL; the
+   official image only consumes `POSTGRES_PASSWORD` during initial database
+   creation:
+
+   ```bash
+   docker compose exec db psql -U miniflux -d miniflux -c '\\password miniflux'
+   ```
+
+2. Immediately store the same new database password in the production secret
+   store and redeploy through the approved declarative Dokploy path.
+3. Rotate the existing administrator interactively. `CREATE_ADMIN` and its
+   environment variables are intentionally absent because they only bootstrap
+   the first user and do not update an existing account:
+
+   ```bash
+   docker compose exec miniflux miniflux -reset-password
+   ```
+
+4. Revoke and re-issue all API keys in **Settings → API Keys**, then update each
+   consumer's secret store.
+5. Verify private UI/API health and the Portal feed integration. Record only
+   timestamp and verification evidence, never credential values.
 
 The values that previously appeared in this repository must be treated as
 compromised even if they were intended as examples.

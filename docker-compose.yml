@@ -1,6 +1,6 @@
 services:
   miniflux:
-    image: miniflux/miniflux:latest
+    image: miniflux/miniflux:2.3.1
     ports:
       - "127.0.0.1:8080:8080"
     depends_on:
@@ -9,9 +9,6 @@ services:
     environment:
       - DATABASE_URL=postgres://miniflux:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@db/miniflux?sslmode=disable
       - RUN_MIGRATIONS=1
-      - CREATE_ADMIN=1
-      - ADMIN_USERNAME=${MINIFLUX_ADMIN_USER:?MINIFLUX_ADMIN_USER is required}
-      - ADMIN_PASSWORD=${MINIFLUX_ADMIN_PASSWORD:?MINIFLUX_ADMIN_PASSWORD is required}
       - BASE_URL=${MINIFLUX_BASE_URL:?MINIFLUX_BASE_URL is required}
       - POLLING_FREQUENCY=15
       - BATCH_SIZE=50

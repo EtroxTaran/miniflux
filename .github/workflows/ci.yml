@@ -1,0 +1,24 @@
+name: Miniflux configuration
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+
+permissions:
+  contents: read
+
+jobs:
+  security-config:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v6.0.3
+
+      - name: Validate private runtime configuration
+        env:
+          POSTGRES_PASSWORD: ci_safe_password_123
+          MINIFLUX_BASE_URL: https://miniflux.example.invalid
+        run: |
+          bash tests/security-config.test.sh
+          docker compose config --quiet
