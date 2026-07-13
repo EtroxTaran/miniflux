@@ -1,0 +1,9 @@
+version: 1
+project: rollout-miniflux
+mappings:
+  - paths: ['AGENTS.md', '.project-governance.yaml']
+    topics: [project_governance]
+  - paths: ['.ai-review/**', '.github/workflows/**']
+    topics: [review_automation]
+  - paths: ['apps/**', 'packages/**', 'plugins/**', 'src/**', 'pipeline/**', 'scripts/**', 'docker-compose*.yml']
+    topics: [project_documentation]
