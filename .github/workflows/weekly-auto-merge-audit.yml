@@ -108,7 +108,6 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - name: Post to Discord
-        if: ${{ vars.DISCORD_AUDIT_WEBHOOK != '' || env.DISCORD_NOTIFICATION_WEBHOOK != '' }}
         env:
           DISCORD_AUDIT_WEBHOOK: ${{ vars.DISCORD_AUDIT_WEBHOOK }}
           DISCORD_NOTIFICATION_WEBHOOK: ${{ secrets.DISCORD_NOTIFICATION_WEBHOOK }}
