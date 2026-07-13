@@ -50,16 +50,6 @@ consensus:
   soft_threshold: 5
   fail_closed_on_missing_stage: true
 
-review_portal:
-  # RevuView review URL surface. Configure the repo variable with the concrete template.
-  url_template: '${AI_REVIEW_PORTAL_REVIEW_URL_TEMPLATE}'
-
-environments:
-  qs:
-    base_url_env: PLAYWRIGHT_QS_BASE_URL
-    playwright_base_url_env: PLAYWRIGHT_QS_BASE_URL
-    dokploy_profile: qa
-
 notifications:
   target: telegram
   discord:
