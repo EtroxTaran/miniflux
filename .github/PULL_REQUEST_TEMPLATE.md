@@ -18,9 +18,9 @@ Closes #<N>
 <Copy Gherkin scenarios from the linked issue. Tick each, reference the test that proves it.>
 
 - [ ] Scenario: "<title from issue>"
-  - Verified by: `tests/security-config.test.sh`
+  - Verified by: `tests/security-config.test.mjs`
 - [ ] Scenario: "<title 2>"
-  - Verified by: `tests/security-config.test.sh`
+  - Verified by: `tests/security-config.test.mjs`
 
 ## Risk Notes
 

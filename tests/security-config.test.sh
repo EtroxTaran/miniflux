@@ -45,7 +45,7 @@ grep -q 'graph_enabled: false' "${governance}"
 grep -q 'enabled: true' "${review_config}"
 
 ci="${root}/.github/workflows/ci.yml"
-grep -q 'bash tests/security-config.test.sh' "${ci}"
+grep -q 'node tests/security-config.test.mjs' "${ci}"
 grep -q 'docker compose config --quiet' "${ci}"
 
 printf 'miniflux security config: ok\n'
