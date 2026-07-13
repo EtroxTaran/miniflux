@@ -19,7 +19,7 @@ for forbidden in "${legacy_db_default}" "${legacy_admin_default}" "${legacy_publ
   fi
 done
 
-grep -q '127.0.0.1:8080:8080' "${compose}"
+grep -Fq '127.0.0.1:${MINIFLUX_TAILSCALE_UI_PORT:-8070}:8080' "${compose}"
 grep -q 'POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required' "${compose}"
 grep -q 'MINIFLUX_BASE_URL:?MINIFLUX_BASE_URL is required' "${compose}"
 grep -q 'miniflux/miniflux:2.3.1' "${compose}"
@@ -36,15 +36,27 @@ fi
 
 grep -qi 'loopback/tailnet-only' "${readme}"
 grep -qi 'no public Traefik router' "${readme}"
-grep -q 'miniflux -reset-password' "${readme}"
-grep -q '\\\\password miniflux' "${readme}"
 grep -q 'A-Za-z0-9_-' "${readme}"
+grep -q 'RUNTIME-SOURCE-OF-TRUTH.md' "${readme}"
+if grep -Eq 'docker compose exec|\\\\password miniflux|miniflux -reset-password' "${readme}"; then
+  printf 'README contains a forbidden production host/container command\n' >&2
+  exit 1
+fi
 grep -q 'lifecycle: maintenance' "${governance}"
 grep -q 'watcher_enabled: true' "${governance}"
 grep -q 'graph_enabled: false' "${governance}"
 grep -q 'enabled: true' "${review_config}"
 
 ci="${root}/.github/workflows/ci.yml"
+grep -q 'workflow_dispatch:' "${ci}"
+if grep -Eq '^[[:space:]]+(pull_request|push):' "${ci}"; then
+  printf 'CI must remain manual while bb8 LOCAL-CI owns automatic review\n' >&2
+  exit 1
+fi
+if grep -q 'ci_safe_password_123' "${ci}"; then
+  printf 'CI contains a committed credential-like value\n' >&2
+  exit 1
+fi
 grep -q 'node tests/security-config.test.mjs' "${ci}"
 grep -q 'docker compose config --quiet' "${ci}"
 

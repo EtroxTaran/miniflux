@@ -22,7 +22,8 @@ non-versioned `.env`. Never paste production values into issues, logs or PRs.
 
 ## Access and API keys
 
-- The Compose port is bound to `127.0.0.1:8080` only.
+- The Compose port follows the central loopback contract:
+  `127.0.0.1:${MINIFLUX_TAILSCALE_UI_PORT:-8070}:8080`.
 - Tailnet exposure is configured outside this repository.
 - Create API keys in Miniflux settings and store them in the consuming service's
   secret store. Do not place them in this repository.
@@ -35,26 +36,19 @@ non-versioned `.env`. Never paste production values into issues, logs or PRs.
 reserved URL characters.
 
 For an existing persistent volume, changing Compose variables alone does not
-rotate either credential. Use this order during an approved maintenance window:
+rotate the database role. Production rotation must use the central declarative
+operations path defined by
+`EtroxTaran/x-ai-stack/docs/v2/RUNTIME-SOURCE-OF-TRUTH.md`; this maintenance
+repository is not a production shell runbook.
 
-1. Rotate the existing database role interactively inside PostgreSQL; the
-   official image only consumes `POSTGRES_PASSWORD` during initial database
-   creation:
+During an approved maintenance window:
 
-   ```bash
-   docker compose exec db psql -U miniflux -d miniflux -c '\\password miniflux'
-   ```
-
-2. Immediately store the same new database password in the production secret
-   store and redeploy through the approved declarative Dokploy path.
-3. Rotate the existing administrator interactively. `CREATE_ADMIN` and its
-   environment variables are intentionally absent because they only bootstrap
-   the first user and do not update an existing account:
-
-   ```bash
-   docker compose exec miniflux miniflux -reset-password
-   ```
-
+1. Prepare a reviewed central `workflow_dispatch` operation that changes the
+   existing Miniflux database role and updates the Dokploy secret atomically.
+   If that operation is unavailable, stop and add it centrally; do not fall
+   back to host-shell or container commands.
+2. Redeploy through Dokploy after the central operation succeeds.
+3. Rotate the Miniflux administrator through the private Tailnet UI.
 4. Revoke and re-issue all API keys in **Settings → API Keys**, then update each
    consumer's secret store.
 5. Verify private UI/API health and the Portal feed integration. Record only
