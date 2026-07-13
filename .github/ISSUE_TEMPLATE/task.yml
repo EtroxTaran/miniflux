@@ -55,7 +55,7 @@ body:
         - [ ] Dependencies/Sub-Issues in GitHub gepflegt oder explizit "None"
         - [ ] PR mit `Closes #<this>` verlinkt
         - [ ] AI-Review-Pipeline: all required stages green oder dokumentierter HITL-Entscheid
-        - [ ] Reporting-Check grün (`ai-review issue-report`)
+        - [ ] LOCAL-CI-Watcher aktiv; erforderliche Review-Stages grün
     validations:
       required: true
 

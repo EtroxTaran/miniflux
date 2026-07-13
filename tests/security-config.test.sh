@@ -5,6 +5,8 @@ root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 compose="${root}/docker-compose.yml"
 readme="${root}/README.md"
 example="${root}/.env.example"
+governance="${root}/.project-governance.yaml"
+review_config="${root}/.ai-review/config.yaml"
 
 legacy_db_default='miniflux''2026'
 legacy_admin_default='crew''2026!'
@@ -37,6 +39,10 @@ grep -qi 'no public Traefik router' "${readme}"
 grep -q 'miniflux -reset-password' "${readme}"
 grep -q '\\\\password miniflux' "${readme}"
 grep -q 'A-Za-z0-9_-' "${readme}"
+grep -q 'lifecycle: maintenance' "${governance}"
+grep -q 'watcher_enabled: true' "${governance}"
+grep -q 'graph_enabled: false' "${governance}"
+grep -q 'enabled: true' "${review_config}"
 
 ci="${root}/.github/workflows/ci.yml"
 grep -q 'bash tests/security-config.test.sh' "${ci}"

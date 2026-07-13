@@ -34,7 +34,7 @@ Closes #<N>
 - [ ] Compose/security contract updated when runtime configuration changes
 - [ ] Manual smoke test in browser / CLI
 - [ ] `docker compose config --no-interpolate && bash tests/security-config.test.sh` local green
-- [ ] `ai-review issue-report` green or documented why not applicable
+- [ ] LOCAL-CI watcher is active and expected to post `ai-review/consensus`
 
 ## Screenshots
 
@@ -44,7 +44,7 @@ Closes #<N>
 
 - [ ] Conventional Commits (`feat:`, `fix:`, `chore:`, ...)
 - [ ] No secrets in diff
-- [ ] `scripts/check-dependabot-alerts.sh` green before push (or documented N/A)
+- [ ] `scripts/check-dependabot-alerts.sh` run manually for dependency changes (otherwise N/A)
 - [ ] AGENTS.md rules honored (TDD, No De-Scoping, Always-Latest)
 - [ ] Issue dependencies and linked project status updated
 
