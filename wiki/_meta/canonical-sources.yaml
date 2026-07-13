@@ -1,5 +1,5 @@
 version: 1
-project: rollout-miniflux
+project: miniflux
 topics:
   project_governance:
     canonical: AGENTS.md
